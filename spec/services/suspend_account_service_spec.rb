@@ -85,14 +85,29 @@ RSpec.describe SuspendAccountService, :sidekiq_inline do
         account.follow!(local_followee)
       end
 
-      it 'sends a Reject Follow activity, and records severed relationships', :aggregate_failures do
+      it 'sends a Reject Follow activity, records severed relationships, and sends notifications', :aggregate_failures do
         subject
 
         expect(a_request(:post, account.inbox_url).with { |req| match_reject_follow_request(req, account, local_followee) }).to have_been_made.once
 
+        # Records severed relationships
         severed_relationships = local_followee.severed_relationships.to_a
         expect(severed_relationships.count).to eq 1
         expect(severed_relationships.map { |rel| [rel.account, rel.target_account] }).to contain_exactly([account, local_followee])
+
+        # Sends severed relationships notification
+        expect(local_followee.notifications.find_by(type: :severed_relationships))
+          .to have_attributes(
+            activity: have_attributes(
+              relationship_severance_event: have_attributes(
+                account_suspension?: true,
+                purged: false
+              ),
+              account: local_followee,
+              relationships_count: 1
+            ),
+            filtered: false
+          )
       end
     end
   end
